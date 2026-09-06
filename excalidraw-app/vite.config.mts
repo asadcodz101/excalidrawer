@@ -11,18 +11,47 @@ import { woff2BrowserPlugin } from "../scripts/woff2/woff2-vite-plugins";
 export default defineConfig(({ mode }) => {
   // To load .env variables
   const envVars = loadEnv(mode, `../`);
+  // `true` when building/running inside the Tauri desktop shell.
+  // Enabled via `--mode desktop` (loads root `.env.desktop`) or via
+  // the VITE_APP_DESKTOP process env.
+  const isDesktop =
+    process.env.VITE_APP_DESKTOP === "true" ||
+    envVars.VITE_APP_DESKTOP === "true";
   // https://vitejs.dev/config/
   return {
     server: {
-      port: Number(envVars.VITE_APP_PORT || 3000),
-      // open the browser
-      open: true,
+      port: Number(envVars.VITE_APP_PORT || 1420),
+      // Tauri devUrl expects a fixed port
+      strictPort: true,
+      // don't pop a browser window when running inside Tauri
+      open: !isDesktop,
     },
     // We need to specify the envDir since now there are no
     //more located in parallel with the vite.config.ts file but in parent dir
     envDir: "../",
     resolve: {
       alias: [
+        // In desktop builds the PWA plugin is disabled, so stub out the
+        // virtual module to keep the build working (it's a no-op there).
+        ...(isDesktop
+          ? [
+              {
+                find: /^virtual:pwa-register$/,
+                replacement: path.resolve(__dirname, "./tauri-pwa-stub.ts"),
+              },
+            ]
+          : []),
+        // In desktop builds (pure offline) drop online-only deps from the
+        // bundle entirely: firebase, socket.io-client, sentry, callsites.
+        // None of their code paths execute in the desktop shell.
+        ...(isDesktop
+          ? [
+              {
+                find: /^(firebase\/app|firebase\/firestore|firebase\/storage|socket\.io-client|@sentry\/browser|callsites)$/,
+                replacement: path.resolve(__dirname, "./tauri-online-stub.ts"),
+              },
+            ]
+          : []),
         {
           find: /^@excalidraw\/common$/,
           replacement: path.resolve(
@@ -127,34 +156,39 @@ export default defineConfig(({ mode }) => {
           },
         },
       },
-      sourcemap: true,
+      // skip sourcemaps in desktop builds (smaller bundle, faster build)
+      sourcemap: !isDesktop,
       // don't auto-inline small assets (i.e. fonts hosted on CDN)
       assetsInlineLimit: 0,
     },
     plugins: [
-      Sitemap({
-        hostname: "https://excalidraw.com",
-        outDir: "build",
-        changefreq: "monthly",
-        // its static in public folder
-        generateRobotsTxt: false,
-      }),
+      // no sitemap / service-worker machinery in the desktop shell
+      (!isDesktop &&
+        Sitemap({
+          hostname: "https://excalidraw.com",
+          outDir: "build",
+          changefreq: "monthly",
+          // its static in public folder
+          generateRobotsTxt: false,
+        })),
       woff2BrowserPlugin(),
       react(),
-      checker({
-        typescript: true,
-        eslint:
-          envVars.VITE_APP_ENABLE_ESLINT === "false"
-            ? undefined
-            : { lintCommand: 'eslint "./**/*.{js,ts,tsx}"' },
-        overlay: {
-          initialIsOpen: envVars.VITE_APP_COLLAPSE_OVERLAY === "false",
-          badgeStyle: "margin-bottom: 4rem; margin-left: 1rem",
-        },
-      }),
+      (!isDesktop &&
+        checker({
+          typescript: true,
+          eslint:
+            envVars.VITE_APP_ENABLE_ESLINT === "false"
+              ? undefined
+              : { lintCommand: 'eslint "./**/*.{js,ts,tsx}"' },
+          overlay: {
+            initialIsOpen: envVars.VITE_APP_COLLAPSE_OVERLAY === "false",
+            badgeStyle: "margin-bottom: 4rem; margin-left: 1rem",
+          },
+        })),
       svgrPlugin(),
       ViteEjsPlugin(),
-      VitePWA({
+      (!isDesktop &&
+        VitePWA({
         registerType: "autoUpdate",
         devOptions: {
           /* set this flag to true to enable in Development mode */
@@ -315,7 +349,7 @@ export default defineConfig(({ mode }) => {
             },
           ],
         },
-      }),
+      })),
       createHtmlPlugin({
         minify: true,
       }),

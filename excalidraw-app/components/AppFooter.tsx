@@ -6,6 +6,9 @@ import { isExcalidrawPlusSignedUser } from "../app_constants";
 import { DebugFooter, isVisualDebuggerEnabled } from "./DebugCanvas";
 import { EncryptedIcon } from "./EncryptedIcon";
 
+// `true` inside the Tauri desktop shell (pure offline: no external links).
+const isDesktop = import.meta.env.VITE_APP_DESKTOP === "true";
+
 export const AppFooter = React.memo(
   ({ onChange }: { onChange: () => void }) => {
     return (
@@ -18,7 +21,7 @@ export const AppFooter = React.memo(
           }}
         >
           {isVisualDebuggerEnabled() && <DebugFooter onChange={onChange} />}
-          {!isExcalidrawPlusSignedUser && <EncryptedIcon />}
+          {!isDesktop && !isExcalidrawPlusSignedUser && <EncryptedIcon />}
         </div>
       </Footer>
     );

@@ -27,3 +27,6 @@ dev-dist
 html
 meta*.json
 .claude
+# Tauri
+src-tauri/target
+src-tauri/gen/schemas

@@ -143,6 +143,7 @@ import DebugCanvas, {
 import { useSimulatedCollaborators } from "./debugCollaborators";
 import { AIComponents } from "./components/AI";
 import { ExcalidrawPlusIframeExport } from "./ExcalidrawPlusIframeExport";
+import DesktopBridge from "./tauri/DesktopBridge";
 
 import "./index.scss";
 
@@ -152,6 +153,11 @@ import { AppSidebar } from "./components/AppSidebar";
 import type { CollabAPI } from "./collab/Collab";
 
 polyfill();
+
+/** `true` when running inside the Tauri desktop shell (pure offline). */
+const IS_DESKTOP =
+  typeof window !== "undefined" &&
+  import.meta.env.VITE_APP_DESKTOP === "true";
 
 window.EXCALIDRAW_THROTTLE_RENDER = true;
 
@@ -376,7 +382,8 @@ const ExcalidrawWrapper = () => {
   const excalidrawAPI = useExcalidrawAPI();
 
   const [errorMessage, setErrorMessage] = useState("");
-  const isCollabDisabled = isRunningInIframe();
+  // no collaboration in the offline desktop shell
+  const isCollabDisabled = IS_DESKTOP || isRunningInIframe();
 
   const { editorTheme, appTheme, setAppTheme } = useHandleAppTheme();
 
@@ -957,9 +964,12 @@ const ExcalidrawWrapper = () => {
           canvasActions: {
             toggleTheme: true,
             export: {
-              onExportToBackend,
-              renderCustomUI: excalidrawAPI
-                ? (elements, appState, files) => {
+              // no cloud export in the offline desktop shell (also hides
+              // the shareable-link tab, see JSONExportDialog)
+              onExportToBackend: IS_DESKTOP ? undefined : onExportToBackend,
+              renderCustomUI:
+                excalidrawAPI && !IS_DESKTOP
+                  ? (elements, appState, files) => {
                     return (
                       <ExportToExcalidrawPlus
                         elements={elements}
@@ -1041,7 +1051,7 @@ const ExcalidrawWrapper = () => {
         <OverwriteConfirmDialog>
           <OverwriteConfirmDialog.Actions.ExportToImage />
           <OverwriteConfirmDialog.Actions.SaveToDisk />
-          {excalidrawAPI && (
+          {excalidrawAPI && !IS_DESKTOP && (
             <OverwriteConfirmDialog.Action
               title={t("overwriteConfirm.action.excalidrawPlus.title")}
               actionLabel={t("overwriteConfirm.action.excalidrawPlus.button")}
@@ -1059,9 +1069,11 @@ const ExcalidrawWrapper = () => {
           )}
         </OverwriteConfirmDialog>
         <AppFooter onChange={() => excalidrawAPI?.refresh()} />
-        {excalidrawAPI && <AIComponents excalidrawAPI={excalidrawAPI} />}
+        {!IS_DESKTOP && excalidrawAPI && (
+          <AIComponents excalidrawAPI={excalidrawAPI} />
+        )}
 
-        <TTDDialogTrigger />
+        {!IS_DESKTOP && <TTDDialogTrigger />}
         {isCollaborating && isOffline && (
           <div className="alertalert--warning">
             {t("alerts.collabOfflineWarning")}
@@ -1083,8 +1095,9 @@ const ExcalidrawWrapper = () => {
           <Collab excalidrawAPI={excalidrawAPI} />
         )}
 
-        <ShareDialog
-          collabAPI={collabAPI}
+        {!IS_DESKTOP && (
+          <ShareDialog
+            collabAPI={collabAPI}
           onExportToBackend={async () => {
             if (excalidrawAPI) {
               try {
@@ -1098,9 +1111,12 @@ const ExcalidrawWrapper = () => {
               }
             }
           }}
-        />
+          />
+        )}
 
         <AppSidebar />
+
+        {import.meta.env.VITE_APP_DESKTOP === "true" && <DesktopBridge />}
 
         {errorMessage && (
           <ErrorDialog onClose={() => setErrorMessage("")}>
@@ -1109,7 +1125,8 @@ const ExcalidrawWrapper = () => {
         )}
 
         <CommandPalette
-          customCommandPaletteItems={[
+          // no online commands (collab/share/socials/Plus) in desktop
+          customCommandPaletteItems={IS_DESKTOP ? [] : [
             {
               label: t("labels.liveCollaboration"),
               category: DEFAULT_CATEGORIES.app,

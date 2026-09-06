@@ -75,11 +75,13 @@ const Footer = ({
         >
           <div style={{ position: "relative" }}>
             {renderWelcomeScreen && <WelcomeScreenHelpHintTunnel.Out />}
-            {defaultUIEnabled && (
-              <HelpButton
-                onClick={() => actionManager.executeAction(actionShortcuts)}
-              />
-            )}
+            {/* hidden in the offline desktop shell (Tauri) */}
+            {defaultUIEnabled &&
+              import.meta.env.VITE_APP_DESKTOP !== "true" && (
+                <HelpButton
+                  onClick={() => actionManager.executeAction(actionShortcuts)}
+                />
+              )}
           </div>
         </div>
       )}
