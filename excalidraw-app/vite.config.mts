@@ -57,6 +57,27 @@ export default defineConfig(({ mode }) => {
                 find: /^browser-fs-access$/,
                 replacement: path.resolve(__dirname, "./tauri-fs-access.ts"),
               },
+              // Drop desktop-dead online modules entirely (collab + Portal,
+              // share dialog, Plus/AI components, firebase app code).
+              // None execute in the offline shell; atoms keep defaults.
+              {
+                find: /^(\.\/share\/ShareDialog|\.\/components\/ExportToExcalidrawPlus|\.\/ExcalidrawPlusIframeExport|\.\/components\/AI|\.\/data\/firebase|\.\/firebase)$/,
+                replacement: path.resolve(__dirname, "./tauri-dead-stub.ts"),
+              },
+              {
+                find: /^\.\/collab\/Collab$/,
+                replacement: path.resolve(
+                  __dirname,
+                  "./tauri-collab-stub.ts",
+                ),
+              },
+              {
+                find: /^\.\/collab\/CollabError$/,
+                replacement: path.resolve(
+                  __dirname,
+                  "./tauri-collab-error-stub.ts",
+                ),
+              },
             ]
           : []),
         {

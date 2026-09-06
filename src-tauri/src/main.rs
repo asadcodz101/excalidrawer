@@ -73,7 +73,6 @@ fn main() {
         .manage(Mutex::new(None::<String>))
         .plugin(tauri_plugin_fs::init())
         .plugin(tauri_plugin_dialog::init())
-        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
             // App already running (e.g. another `.excalidraw` double-click):
             // forward the file to the running instance.
