@@ -837,6 +837,20 @@ const ExcalidrawWrapper = () => {
     [setShareDialogState],
   );
 
+  // desktop shell: native menu bar (View → theme) toggles via event
+  // because the theme state lives here, not in DesktopBridge
+  useEffect(() => {
+    if (!IS_DESKTOP) {
+      return;
+    }
+    const onToggleTheme = () => {
+      setAppTheme(editorTheme === "dark" ? "light" : "dark");
+    };
+    window.addEventListener("desktop:toggle-theme", onToggleTheme);
+    return () =>
+      window.removeEventListener("desktop:toggle-theme", onToggleTheme);
+  }, [editorTheme, setAppTheme]);
+
   // ---------------------------------------------------------------------------
   // onExport — intercepts file save to wait for pending image loads
   // ---------------------------------------------------------------------------
@@ -1037,13 +1051,16 @@ const ExcalidrawWrapper = () => {
           }
         }}
       >
-        <AppMainMenu
-          onCollabDialogOpen={onCollabDialogOpen}
-          isCollaborating={isCollaborating}
-          isCollabEnabled={!isCollabDisabled}
-          theme={appTheme}
-          refresh={() => forceRefresh((prev) => !prev)}
-        />
+        {/* hamburger lives in the native menu bar in the desktop shell */}
+        {!IS_DESKTOP && (
+          <AppMainMenu
+            onCollabDialogOpen={onCollabDialogOpen}
+            isCollaborating={isCollaborating}
+            isCollabEnabled={!isCollabDisabled}
+            theme={appTheme}
+            refresh={() => forceRefresh((prev) => !prev)}
+          />
+        )}
         <AppWelcomeScreen
           onCollabDialogOpen={onCollabDialogOpen}
           isCollabEnabled={!isCollabDisabled}

@@ -6,6 +6,10 @@ import "../excalidraw-app/sentry";
 import ExcalidrawApp from "./App";
 
 window.__EXCALIDRAW_SHA__ = import.meta.env.VITE_APP_GIT_SHA;
+if (import.meta.env.VITE_APP_DESKTOP === "true") {
+  // hook for desktop-only styling (native menu bar replaces canvas chrome)
+  document.body.classList.add("tauri-desktop");
+}
 const rootElement = document.getElementById("root")!;
 const root = createRoot(rootElement);
 // Service worker only makes sense in the browser build. In the Tauri

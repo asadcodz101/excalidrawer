@@ -128,3 +128,12 @@
     }
   }
 }
+
+// Tauri desktop shell: hamburger, zoom/undo and sidebar toggle live in
+// the native menu bar, so keep them out of the drawing area.
+body.tauri-desktop {
+  .default-sidebar-trigger,
+  .layer-ui__wrapper__footer-left {
+    display: none !important;
+  }
+}
