@@ -29,8 +29,7 @@ fn build_menu<R: Runtime>(app: &AppHandle<R>) -> tauri::Result<tauri::menu::Menu
             &MenuItemBuilder::with_id("file-save", "Save\tCtrl+S").build(app)?,
             &MenuItemBuilder::with_id("file-save-as", "Save As…").build(app)?,
             &PredefinedMenuItem::separator(app)?,
-            &MenuItemBuilder::with_id("file-export-png", "Export as PNG…").build(app)?,
-            &MenuItemBuilder::with_id("file-export-svg", "Export as SVG…").build(app)?,
+            &MenuItemBuilder::with_id("file-export", "Export…\tCtrl+Shift+E").build(app)?,
             &PredefinedMenuItem::separator(app)?,
             &MenuItemBuilder::with_id("file-exit", "Exit").build(app)?,
         ])
@@ -104,8 +103,9 @@ fn main() {
                 "help-about" => {
                     app.dialog()
                         .message(format!(
-                            "Excalidraw Desktop {}\n\nLightweight offline whiteboard for Windows.\nDrawings auto-save locally; use File → Save for .excalidraw files.",
+                            "Excalidraw Desktop {}\nBuild: {}\n\nLightweight offline whiteboard for Windows.\nDrawings auto-save locally; use File → Save for .excalidraw files.",
                             env!("CARGO_PKG_VERSION"),
+                            env!("BUILD_FINGERPRINT"),
                         ))
                         .title("About Excalidraw Desktop")
                         .show(|_| {});

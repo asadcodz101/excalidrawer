@@ -7,6 +7,7 @@ import { useTunnels } from "../context/tunnels";
 import { t } from "../i18n";
 
 import { useEditorInterface, useStylesPanelMode } from "./App";
+import { useExcalidrawActionManager } from "./App";
 import { HintViewer } from "./HintViewer";
 import { Island } from "./Island";
 import { LockButton } from "./LockButton";
@@ -61,6 +62,7 @@ const ExtraToolsDropdown = ({
 }) => {
   const [isExtraToolsMenuOpen, setIsExtraToolsMenuOpen] = useState(false);
   const isFullStylesPanel = useStylesPanelMode() === "full";
+  const actionManager = useExcalidrawActionManager();
   const { TTDDialogTriggerTunnel } = useTunnels();
 
   const frameToolSelected = activeTool.type === "frame";
@@ -194,6 +196,18 @@ const ExtraToolsDropdown = ({
           >
             {t("toolBar.magicframe")}
           </DropdownMenu.Item>
+        )}
+        {/* desktop shell: canvas background lives here instead of the
+            (hidden) hamburger menu */}
+        {import.meta.env.VITE_APP_DESKTOP === "true" && (
+          <>
+            <div style={{ margin: "6px 0", fontSize: 14, fontWeight: 600 }}>
+              {t("labels.canvasBackground")}
+            </div>
+            <div style={{ padding: "0 0.625rem" }}>
+              {actionManager.renderAction("changeViewBackgroundColor")}
+            </div>
+          </>
         )}
       </DropdownMenu.Content>
     </DropdownMenu>

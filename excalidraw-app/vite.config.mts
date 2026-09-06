@@ -50,6 +50,13 @@ export default defineConfig(({ mode }) => {
                 find: /^(firebase\/app|firebase\/firestore|firebase\/storage|socket\.io-client|@sentry\/browser|callsites)$/,
                 replacement: path.resolve(__dirname, "./tauri-online-stub.ts"),
               },
+              // Route every built-in dialog's file pick/save through native
+              // Tauri dialogs (see tauri-fs-access.ts). This covers Load
+              // from file, Save to disk and Export image.
+              {
+                find: /^browser-fs-access$/,
+                replacement: path.resolve(__dirname, "./tauri-fs-access.ts"),
+              },
             ]
           : []),
         {

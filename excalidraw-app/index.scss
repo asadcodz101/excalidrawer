@@ -136,4 +136,12 @@ body.tauri-desktop {
   .layer-ui__wrapper__footer-left {
     display: none !important;
   }
+
+  // no flyout menus of any kind in the desktop shell — belt & suspenders
+  // alongside the conditional rendering in App.tsx (covers the desktop
+  // hamburger as well as any fallback/mobile menu variants)
+  .main-menu-trigger,
+  .main-menu {
+    display: none !important;
+  }
 }

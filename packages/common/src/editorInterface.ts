@@ -138,6 +138,15 @@ export const getFormFactor = (
   editorWidth: number,
   editorHeight: number,
 ): EditorInterface["formFactor"] => {
+  // Tauri desktop shell: always desktop UI, no matter the window size
+  // (flag is set in excalidraw-app/index.tsx for desktop builds)
+  if (
+    typeof window !== "undefined" &&
+    (window as any).__EXCALIDRAW_DESKTOP_SHELL__ === true
+  ) {
+    return "desktop";
+  }
+
   if (isMobileBreakpoint(editorWidth, editorHeight)) {
     return "phone";
   }

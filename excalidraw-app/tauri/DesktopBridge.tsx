@@ -1,8 +1,12 @@
 import { useEffect } from "react";
 import { useExcalidrawAPI } from "@excalidraw/excalidraw";
-import { exportToBlob, exportToSvg } from "@excalidraw/excalidraw";
+import { CaptureUpdateAction } from "@excalidraw/excalidraw";
 import { loadFromBlob } from "@excalidraw/excalidraw/data/blob";
 import { serializeAsJSON } from "@excalidraw/excalidraw/data/json";
+import { fileOpen } from "@excalidraw/excalidraw/data/filesystem";
+import { openConfirmModal } from "@excalidraw/excalidraw/components/OverwriteConfirm/OverwriteConfirmState";
+import Trans from "@excalidraw/excalidraw/components/Trans";
+import { t } from "@excalidraw/excalidraw/i18n";
 import { getViewportForZoomWithScrollConstraints } from "@excalidraw/excalidraw/viewport";
 import { getNormalizedZoom } from "@excalidraw/excalidraw/scene/normalize";
 import {
@@ -13,29 +17,46 @@ import {
   MIN_ZOOM,
   ZOOM_STEP,
 } from "@excalidraw/common";
-import { confirm, open, save } from "@tauri-apps/plugin-dialog";
-import {
-  readTextFile,
-  writeFile,
-  writeTextFile,
-} from "@tauri-apps/plugin-fs";
+import { confirm, save } from "@tauri-apps/plugin-dialog";
+import { readTextFile, writeTextFile } from "@tauri-apps/plugin-fs";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
-import type { NonDeletedExcalidrawElement } from "@excalidraw/element/types";
 import type { ExcalidrawImperativeAPI } from "@excalidraw/excalidraw/types";
 
 const FILE_FILTERS = [{ name: "Excalidraw", extensions: ["excalidraw"] }];
 
 // Currently opened file. Used by File → Save so it doesn't prompt again.
-// Set on open / double-click, cleared on New.
+// Set on open / double-click, cleared on New. Mirrored into
+// appState.fileHandle so the built-in flows stay consistent.
 let currentFilePath: string | null = null;
+
+const basename = (path: string) => path.split(/[/\\]/).pop() || path;
+
+const getActivePath = (excalidrawAPI: ExcalidrawImperativeAPI) =>
+  currentFilePath ??
+  (excalidrawAPI.getAppState().fileHandle as any)?.__tauriPath ??
+  null;
+
+const setActivePath = (
+  excalidrawAPI: ExcalidrawImperativeAPI,
+  filePath: string | null,
+) => {
+  currentFilePath = filePath;
+  excalidrawAPI.updateScene({
+    appState: {
+      fileHandle: filePath
+        ? ({ name: basename(filePath), kind: "file", __tauriPath: filePath } as any)
+        : null,
+    } as any,
+  });
+};
 
 export const saveSceneToFile = async (
   excalidrawAPI: ExcalidrawImperativeAPI,
   opts?: { saveAs?: boolean },
 ) => {
-  let filePath = opts?.saveAs ? null : currentFilePath;
+  let filePath = opts?.saveAs ? null : getActivePath(excalidrawAPI);
   if (!filePath) {
     const picked = await save({
       defaultPath: `${excalidrawAPI.getName() || "drawing"}.excalidraw`,
@@ -53,23 +74,77 @@ export const saveSceneToFile = async (
     "local",
   );
   await writeTextFile(filePath, json);
-  currentFilePath = filePath;
+  setActivePath(excalidrawAPI, filePath);
   excalidrawAPI.setToast({ message: `Saved to ${filePath}` });
 };
 
-export const openSceneFromFile = async (
+/** Menu File → Save: direct save when a file is active, otherwise the
+ *  same "Save to..." confirm dialog the flyout used to show. */
+export const saveSceneWithDialog = async (
   excalidrawAPI: ExcalidrawImperativeAPI,
+  opts?: { saveAs?: boolean },
 ) => {
-  const selected = await open({
-    multiple: false,
-    directory: false,
-    filters: FILE_FILTERS,
-  });
-  if (!selected || Array.isArray(selected)) {
+  if (!opts?.saveAs && getActivePath(excalidrawAPI)) {
+    await saveSceneToFile(excalidrawAPI);
     return;
   }
-  await openSceneFromPath(excalidrawAPI, selected);
+  const confirmed = await openConfirmModal({
+    title: t("buttons.export"),
+    actionLabel: t("overwriteConfirm.action.saveToDisk.button"),
+    color: "warning",
+    description: t("overwriteConfirm.action.saveToDisk.description"),
+  });
+  if (confirmed) {
+    await saveSceneToFile(excalidrawAPI, { saveAs: true });
+  }
 };
+
+/** Menu File → Open: the same "Load from file" confirm dialog the
+ *  flyout used to show (backup actions included, all Tauri-backed). */
+export const openSceneWithDialog = async (
+  excalidrawAPI: ExcalidrawImperativeAPI,
+) => {
+  if (excalidrawAPI.getSceneElements().length) {
+    const confirmed = await openConfirmModal({
+      title: t("overwriteConfirm.modal.loadFromFile.title"),
+      actionLabel: t("overwriteConfirm.modal.loadFromFile.button"),
+      color: "warning",
+      description: (
+        <Trans
+          i18nKey="overwriteConfirm.modal.loadFromFile.description"
+          bold={(text) => <strong>{text}</strong>}
+          br={() => <br />}
+        />
+      ),
+    });
+    if (!confirmed) {
+      return;
+    }
+  }
+  // same as the built-in loadScene action; fileOpen goes through the
+  // Tauri shim (native picker) in desktop builds
+  const file = await fileOpen({ description: "Excalidraw files" });
+  const data = await loadFromBlob(
+    file,
+    excalidrawAPI.getAppState(),
+    excalidrawAPI.getSceneElements(),
+    (file as any).handle ?? null,
+  );
+  excalidrawAPI.updateScene({
+    elements: data.elements,
+    appState: data.appState,
+    captureUpdate: CaptureUpdateAction.IMMEDIATELY,
+  });
+  if (data.files) {
+    excalidrawAPI.addFiles(Object.values(data.files));
+  }
+  setActivePath(
+    excalidrawAPI,
+    (file as any).handle?.__tauriPath ?? null,
+  );
+};
+
+export const openSceneFromFile = openSceneWithDialog;
 
 export const openSceneFromPath = async (
   excalidrawAPI: ExcalidrawImperativeAPI,
@@ -78,7 +153,8 @@ export const openSceneFromPath = async (
   const text = await readTextFile(filePath);
   const data = await loadFromBlob(
     new Blob([text], { type: MIME_TYPES.excalidraw }),
-    null,
+    excalidrawAPI.getAppState(),
+    excalidrawAPI.getSceneElements(),
     null,
   );
   excalidrawAPI.updateScene({
@@ -88,7 +164,15 @@ export const openSceneFromPath = async (
   if (data.files) {
     excalidrawAPI.addFiles(Object.values(data.files));
   }
-  currentFilePath = filePath;
+  setActivePath(excalidrawAPI, filePath);
+};
+
+/** Menu File → Export…: the same built-in Export image dialog
+ *  (preview, background, dark mode, scale, PNG/SVG/clipboard). */
+export const openExportDialog = (excalidrawAPI: ExcalidrawImperativeAPI) => {
+  excalidrawAPI.updateScene({
+    appState: { openDialog: { name: "imageExport" } } as any,
+  });
 };
 
 const newScene = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
@@ -100,7 +184,7 @@ const newScene = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
     return;
   }
   excalidrawAPI.resetScene();
-  currentFilePath = null;
+  setActivePath(excalidrawAPI, null);
 };
 
 const clearCanvas = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
@@ -114,65 +198,8 @@ const clearCanvas = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
   excalidrawAPI.updateScene({ elements: [] });
 };
 
-const nonDeletedElements = (excalidrawAPI: ExcalidrawImperativeAPI) =>
-  excalidrawAPI.getSceneElements() as unknown as readonly NonDeletedExcalidrawElement[];
-
-const exportSceneAsPng = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
-  const elements = nonDeletedElements(excalidrawAPI);
-  if (!elements.length) {
-    excalidrawAPI.setToast({ message: "Nothing to export" });
-    return;
-  }
-  const appState = excalidrawAPI.getAppState();
-  const scale = appState.exportScale ?? 2;
-  const blob = await exportToBlob({
-    elements,
-    appState,
-    files: excalidrawAPI.getFiles(),
-    mimeType: MIME_TYPES.png,
-    getDimensions: (width, height) => ({
-      width: width * scale,
-      height: height * scale,
-      scale,
-    }),
-  });
-  const filePath = await save({
-    defaultPath: `${excalidrawAPI.getName() || "drawing"}.png`,
-    filters: [{ name: "PNG image", extensions: ["png"] }],
-  });
-  if (!filePath) {
-    return;
-  }
-  await writeFile(filePath, new Uint8Array(await blob.arrayBuffer()));
-  excalidrawAPI.setToast({ message: `Exported to ${filePath}` });
-};
-
-const exportSceneAsSvg = async (excalidrawAPI: ExcalidrawImperativeAPI) => {
-  const elements = nonDeletedElements(excalidrawAPI);
-  if (!elements.length) {
-    excalidrawAPI.setToast({ message: "Nothing to export" });
-    return;
-  }
-  const appState = excalidrawAPI.getAppState();
-  const svg = await exportToSvg({
-    elements,
-    // embed the scene so the SVG re-opens as editable in Excalidraw
-    appState: { ...appState, exportEmbedScene: true },
-    files: excalidrawAPI.getFiles(),
-  });
-  const filePath = await save({
-    defaultPath: `${excalidrawAPI.getName() || "drawing"}.svg`,
-    filters: [{ name: "SVG image", extensions: ["svg"] }],
-  });
-  if (!filePath) {
-    return;
-  }
-  await writeTextFile(filePath, new XMLSerializer().serializeToString(svg));
-  excalidrawAPI.setToast({ message: `Exported to ${filePath}` });
-};
-
 /** Dispatch a synthetic keydown so Excalidraw runs its own action
- *  (undo/redo/zoom-to-fit/find use internal keybindings). */
+ *  (undo/redo/zoom-to-fit use internal keybindings). */
 const pressKeys = (init: KeyboardEventInit) => {
   (document.activeElement ?? document.body).dispatchEvent(
     new KeyboardEvent("keydown", {
@@ -183,10 +210,7 @@ const pressKeys = (init: KeyboardEventInit) => {
   );
 };
 
-const zoomBy = (
-  excalidrawAPI: ExcalidrawImperativeAPI,
-  delta: number,
-) => {
+const zoomBy = (excalidrawAPI: ExcalidrawImperativeAPI, delta: number) => {
   const appState = excalidrawAPI.getAppState();
   const nextZoom = getNormalizedZoom(
     Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, appState.zoom.value + delta)),
@@ -234,7 +258,7 @@ const openSidebarTab = (
 ) => {
   excalidrawAPI.updateScene({
     appState: {
-      openSidebar: { name: "default", tab } as any,
+      openSidebar: { name: "default", tab },
     } as any,
   });
 };
@@ -258,19 +282,16 @@ const handleMenuEvent = async (
       await newScene(excalidrawAPI);
       break;
     case "file-open":
-      await openSceneFromFile(excalidrawAPI);
+      await openSceneWithDialog(excalidrawAPI);
       break;
     case "file-save":
-      await saveSceneToFile(excalidrawAPI);
+      await saveSceneWithDialog(excalidrawAPI);
       break;
     case "file-save-as":
-      await saveSceneToFile(excalidrawAPI, { saveAs: true });
+      await saveSceneWithDialog(excalidrawAPI, { saveAs: true });
       break;
-    case "file-export-png":
-      await exportSceneAsPng(excalidrawAPI);
-      break;
-    case "file-export-svg":
-      await exportSceneAsSvg(excalidrawAPI);
+    case "file-export":
+      openExportDialog(excalidrawAPI);
       break;
     case "edit-undo":
       pressKeys({ key: "z", code: "KeyZ", ctrlKey: true });
@@ -313,7 +334,8 @@ const handleMenuEvent = async (
 
 /**
  * Mounted only in the Tauri desktop shell (see App.tsx). Wires up:
- * - native Ctrl+S / Ctrl+O (system file dialogs, no browser download),
+ * - native Ctrl+S / Ctrl+O (captured before Excalidraw's own bindings so
+ *   the desktop file flows run exactly once),
  * - `.excalidraw` files opened from the OS (double-click / Open with),
  * - native menu bar events (File/Edit/View/Help).
  * Renders nothing.
@@ -327,30 +349,31 @@ const DesktopBridge = () => {
       return;
     }
     const onKeyDown = (event: KeyboardEvent) => {
-      if (!(event.ctrlKey || event.metaKey)) {
+      if (!(event.ctrlKey || event.metaKey) || event.shiftKey) {
         return;
       }
       const key = event.key.toLowerCase();
-      if (key === "s") {
+      if (key === "s" || key === "o") {
+        // capture phase + stopPropagation: preempt Excalidraw's built-in
+        // save/load bindings so only the desktop flow runs
         event.preventDefault();
-        saveSceneToFile(api).catch((error) => {
-          console.error("Desktop save failed", error);
+        event.stopPropagation();
+        (key === "s"
+          ? saveSceneWithDialog(api)
+          : openSceneWithDialog(api)
+        ).catch((error) => {
+          if (error?.name === "AbortError") {
+            return;
+          }
+          console.error("Desktop file action failed", error);
           api.setToast({
-            message: `Save failed: ${error?.message || error}`,
-          });
-        });
-      } else if (key === "o") {
-        event.preventDefault();
-        openSceneFromFile(api).catch((error) => {
-          console.error("Desktop open failed", error);
-          api.setToast({
-            message: `Open failed: ${error?.message || error}`,
+            message: `Action failed: ${error?.message || error}`,
           });
         });
       }
     };
-    window.addEventListener("keydown", onKeyDown);
-    return () => window.removeEventListener("keydown", onKeyDown);
+    window.addEventListener("keydown", onKeyDown, true);
+    return () => window.removeEventListener("keydown", onKeyDown, true);
   }, [excalidrawAPI]);
 
   // file opened from the OS: pending launch file + later open events
@@ -398,6 +421,9 @@ const DesktopBridge = () => {
     let unlisten: (() => void) | undefined;
     listen<string>("menu-event", (event) => {
       handleMenuEvent(api, event.payload).catch((error) => {
+        if (error?.name === "AbortError") {
+          return;
+        }
         console.error(`Desktop menu action failed (${event.payload})`, error);
         api.setToast({
           message: `Action failed: ${error?.message || error}`,
